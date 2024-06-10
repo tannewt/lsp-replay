@@ -42,6 +42,9 @@ with open(input_file, "r") as f:
 		if "copilot" not in event["server"] or event["direction"] == 2:
 			continue
 		params = event["params"]
+		if "method" not in event:
+			print(event)
+			continue
 		if event["method"].startswith("textDocument/"):
 			if "lsp-log" in event["params"]["textDocument"]["uri"]:
 				continue
@@ -50,6 +53,8 @@ with open(input_file, "r") as f:
 				open_files.add(uri)
 				send(event["method"], params)
 				print("opened", uri)
+				del params["textDocument"]["text"]
+				print(params)
 			elif event["method"] == "textDocument/didClose":
 				if uri in open_files:
 					open_files.remove(uri)
@@ -58,17 +63,32 @@ with open(input_file, "r") as f:
 			elif event["method"] == "textDocument/didChange":
 				if uri in open_files:
 					send(event["method"], params)
-					print(event)
-					print("changed", uri)
-				print(event)
+					# print(event)
+					# print("changed", uri)
 			else:
 				print(i, event)
+		elif event["method"] in ("initialize", "initialized"):
+			# We do our own initialize
+			continue
+		elif event["method"].startswith("workspace/"):
+			# We don't care about workspace events
+			continue
+		elif event["method"] in ("checkStatus", "setEditorInfo"):
+			# We don't care this stuff
+			continue
 		else:
+			if "doc" not in params:
+				print(event)
 			uri = params["doc"]["uri"]
 			if "lsp-log" in uri:
 				continue
 			if event["method"] == "getCompletionsCycling":
 				continue
+			if uri not in open_files:
+				open_files.add(uri)
+				fake_params = {"textDocument": {"languageId": params["doc"]["languageId"], "text": params["doc"]["source"], "uri": uri, "version": params["doc"]["version"]}}
+				send("textDocument/didOpen", fake_params)
+				print("inject open")
 			del event["params"]["doc"]["source"]
 			print(i, event)
 		i += 1
