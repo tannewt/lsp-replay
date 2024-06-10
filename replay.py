@@ -9,6 +9,20 @@ print(input_file)
 LLM_LOG_LEVEL="DEBUG"
 language_server = subprocess.Popen(sys.argv[2:], stdin=subprocess.PIPE, stdout=subprocess.PIPE, env={"LLM_LOG_LEVEL": LLM_LOG_LEVEL})
 
+# Copilot: add quotes around the keys
+config_params = {
+	"model": "codellama:7b",
+	"backend": "ollama",
+	"url": "http://localhost:11434/api/generate",
+	"tokensToClear": ["<EOT>"],
+	"requestBody": {"options": {"num_predict": 60, "temperature": 0.2, "top_p": 0.95}},
+	"fim": {"enabled": True, "prefix": "<PRE> ", "middle": " <MID>", "suffix": " <SUF>"},
+	"contextWindow": 1024,
+	"tlsSkipVerifyInsecure": True,
+	"ide": "vscode",
+	"disableUrlPathCompletion": True,
+	"tokenizer_config": {"repository": "codellama/CodeLlama-7b-hf"},
+}
 def send(method, params, request_id=None):
 	rpc = {"jsonrpc": "2.0", "method": method, "params": params}
 	if request_id is not None:
@@ -21,6 +35,7 @@ def send(method, params, request_id=None):
 
 def receive():
 	content_length = 0
+	print(dir(language_server.stdout))
 	while True:
 		line = language_server.stdout.readline().decode("ascii").strip()
 		if line == "":
@@ -52,6 +67,7 @@ with open(input_file, "r") as f:
 			if event["method"] == "textDocument/didOpen":
 				open_files.add(uri)
 				send(event["method"], params)
+				print("<<<<", receive())
 				print("opened", uri)
 				del params["textDocument"]["text"]
 				print(params)
@@ -74,7 +90,7 @@ with open(input_file, "r") as f:
 			# We don't care about workspace events
 			continue
 		elif event["method"] in ("checkStatus", "setEditorInfo"):
-			# We don't care this stuff
+			# We don't care about this stuff
 			continue
 		else:
 			if "doc" not in params:
@@ -88,9 +104,21 @@ with open(input_file, "r") as f:
 				open_files.add(uri)
 				fake_params = {"textDocument": {"languageId": params["doc"]["languageId"], "text": params["doc"]["source"], "uri": uri, "version": params["doc"]["version"]}}
 				send("textDocument/didOpen", fake_params)
+				print(receive())
 				print("inject open")
 			del event["params"]["doc"]["source"]
 			print(i, event)
+			completion_params = {
+				"position": params["doc"]["position"],
+				"textDocument": {
+					"uri": uri,
+					"version": params["doc"]["version"],
+				},
+			}
+			completion_params.update(config_params)
+			print(">>>>", completion_params)
+			send("llm-ls/getCompletions", completion_params, request_id=i)
+			print("<<<<", receive())
 		i += 1
 		if i > 10:
 			break
